@@ -3,13 +3,15 @@ const {
   ModalBuilder, TextInputBuilder, TextInputStyle,
   EmbedBuilder, InteractionType,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ChannelType, PermissionFlagsBits
+  ChannelType, PermissionFlagsBits,
+  SlashCommandBuilder, REST, Routes
 } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
 
 const EMBED_FILE = './embeds.json';
 const ORDER_LOG_FILE = './orders.json';
+const LOYALTY_FILE = './loyalty.json';
 const ORDER_CHANNEL_ID = '1387118236126019656';
 const TICKET_CATEGORY_ID = '1306843108918689805';
 
@@ -18,13 +20,14 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-client.once('ready', () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
-  client.user.setPresence({
-    status: 'dnd',
-    activities: [{ name: 'boost shimas!', type: ActivityType.Playing }]
-  });
-});
+let loyaltyData = {};
+if (fs.existsSync(LOYALTY_FILE)) {
+  loyaltyData = JSON.parse(fs.readFileSync(LOYALTY_FILE));
+}
+
+function saveLoyaltyData() {
+  fs.writeFileSync(LOYALTY_FILE, JSON.stringify(loyaltyData, null, 2));
+}
 
 function loadEmbeds() {
   if (!fs.existsSync(EMBED_FILE)) fs.writeFileSync(EMBED_FILE, '{}');
@@ -76,6 +79,19 @@ function getEditButtons(name) {
 
 let ticketCounter = 1;
 
+const BASE_IMAGE_URL = 'https://cdn.discordapp.com/attachments/1333193696920866866/1387485122714140843/Untitled67_20250625122953.png';
+const STAMP_EMOJI = '🧸';
+const EMPTY_EMOJI = '⬜';
+const MAX_STAMPS = 10;
+
+client.once('ready', () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+  client.user.setPresence({
+    status: 'dnd',
+    activities: [{ name: 'boost shimas!', type: ActivityType.Playing }]
+  });
+});
+
 client.on('interactionCreate', async interaction => {
   if (interaction.isChatInputCommand()) {
     const cmd = interaction.commandName;
@@ -100,34 +116,30 @@ client.on('interactionCreate', async interaction => {
       });
       await interaction.reply({ content: '✅ Sent.', flags: 64 });
     }
-
-    if (cmd === 'embed_list') {
+    else if (cmd === 'embed_list') {
       const list = Object.keys(embeds).map(n => `• \`${n}\``).join('\n') || 'No embeds saved.';
       await interaction.reply({ content: `📦 **Embeds:**\n${list}`, flags: 64 });
     }
-
-    if (cmd === 'embed_delete') {
+    else if (cmd === 'embed_delete') {
       const name = interaction.options.getString('name');
       if (!embeds[name]) return interaction.reply({ content: '❌ Not found.', flags: 64 });
       delete embeds[name];
       saveEmbeds(embeds);
       await interaction.reply({ content: `🗑️ Deleted **${name}**.`, flags: 64 });
     }
-
-    if (cmd === 'embed_send') {
+    else if (cmd === 'embed_send') {
       const name = interaction.options.getString('name');
       if (!embeds[name]) return interaction.reply({ content: '❌ Not found.', flags: 64 });
       await interaction.channel.send({ embeds: [buildPreviewEmbed(embeds[name])] });
       await interaction.reply({ content: '✅ Sent.', flags: 64 });
     }
-    if (cmd === 'say') {
+    else if (cmd === 'say') {
       const msg = interaction.options.getString('message');
       await interaction.reply({ content: '✅ Sent.', flags: 64 });
       await interaction.channel.send(msg);
     }
-
-    if (cmd === 'order') {
-      await interaction.deferReply({ ephemeral: true }); // Reserve the interaction
+    else if (cmd === 'order') {
+      await interaction.deferReply({ ephemeral: true });
 
       const user = interaction.options.getUser('user');
       const item = interaction.options.getString('item');
@@ -150,7 +162,7 @@ client.on('interactionCreate', async interaction => {
       const msg = await channel.send({ content: orderText, components: [row] });
 
       let orders = loadOrders();
-      if (!Array.isArray(orders)) orders = []; // fix bad format if it's not an array
+      if (!Array.isArray(orders)) orders = [];
       orders.push({
         user: user.id,
         item, amount, mop,
@@ -163,16 +175,96 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.editReply({ content: '✅ Order submitted!' });
     }
+    else if (cmd === 'orders') {
+      const userFilter = interaction.options.getUser('user');
+      const itemFilter = interaction.options.getString('item');
+      const statusFilter = interaction.options.getString('status');
+      const page = interaction.options.getInteger('page') || 1;
 
-    if (cmd === 'ticket') {
+      const orders = loadOrders();
+      let filtered = orders;
+
+      if (userFilter) filtered = filtered.filter(o => o.user === userFilter.id);
+      if (itemFilter) filtered = filtered.filter(o => o.item.toLowerCase().includes(itemFilter.toLowerCase()));
+      if (statusFilter) filtered = filtered.filter(o => o.status.toLowerCase() === statusFilter.toLowerCase());
+
+      const pageSize = 5;
+      const totalPages = Math.ceil(filtered.length / pageSize);
+
+      if (page > totalPages && totalPages !== 0) {
+        return interaction.reply({ content: `❌ Page out of range. There are only ${totalPages} pages.`, flags: 64 });
+      }
+
+      const slice = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+      const lines = slice.map(o =>
+        `• User: <@${o.user}>, Item: ${o.item}, Amount: ${o.amount}, Payment: ${o.mop}, Status: ${o.status}`
+      );
+
+      await interaction.reply({
+        content: `📋 Orders page ${page}/${totalPages || 1}:\n${lines.join('\n') || 'No orders found.'}`,
+        flags: 64
+      });
+    }
+    else if (cmd === 'ticket') {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('create_ticket').setEmoji('1386649793006272544').setStyle(ButtonStyle.Secondary)
       );
-      await interaction.channel.send({ components: [row] }); // not ephemeral
+      await interaction.channel.send({ components: [row] });
+    }
+    else if (cmd === 'stamp') {
+      // Loyalty: Only admin
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: '❌ Only admins can use this command.', flags: 64 });
+      }
+
+      const target = interaction.options.getUser('user');
+      if (!loyaltyData[target.id]) loyaltyData[target.id] = { stamps: 0 };
+
+      if (loyaltyData[target.id].stamps >= MAX_STAMPS) {
+        return interaction.reply({ content: '🟤 This user already has a full card. Ask them to redeem it first.', flags: 64 });
+      }
+
+      loyaltyData[target.id].stamps++;
+      saveLoyaltyData();
+
+      const count = loyaltyData[target.id].stamps;
+      const stampsText = STAMP_EMOJI.repeat(count) + EMPTY_EMOJI.repeat(MAX_STAMPS - count);
+
+      await interaction.reply({
+        content: `🧸 Added a stamp for ${target.username}! (${count}/${MAX_STAMPS})\n${stampsText}\n${BASE_IMAGE_URL}`,
+        flags: 64
+      });
+    }
+    else if (cmd === 'card') {
+      const target = interaction.options.getUser('user') || interaction.user;
+      if (!loyaltyData[target.id]) loyaltyData[target.id] = { stamps: 0 };
+      const count = loyaltyData[target.id].stamps;
+
+      const stampsText = STAMP_EMOJI.repeat(count) + EMPTY_EMOJI.repeat(MAX_STAMPS - count);
+
+      await interaction.reply({
+        content: `🎴 Here's ${target.username}'s loyalty card!\n${stampsText}\n${BASE_IMAGE_URL}`,
+        flags: 64
+      });
+    }
+    else if (cmd === 'redeem') {
+      const userId = interaction.user.id;
+      if (!loyaltyData[userId] || loyaltyData[userId].stamps < MAX_STAMPS) {
+        return interaction.reply({ content: `🔟 You need a full card (${MAX_STAMPS} stamps) to redeem!`, flags: 64 });
+      }
+
+      loyaltyData[userId].stamps = 0;
+      saveLoyaltyData();
+
+      await interaction.reply({
+        content: `🎁 **${interaction.user.username}** has redeemed a full card! Send them their reward manually.`,
+        flags: 64
+      });
     }
   }
 
-  if (interaction.isButton()) {
+  else if (interaction.isButton()) {
     if (interaction.customId.startsWith('status_')) {
       const newStatus = interaction.customId.split('_')[1];
 
@@ -192,9 +284,7 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.update({ content: updatedContent, components: interaction.message.components });
     }
-
-
-    if (interaction.customId === 'create_ticket') {
+    else if (interaction.customId === 'create_ticket') {
       const ticketNumber = ticketCounter++;
       const channel = await interaction.guild.channels.create({
         name: `ticket-${ticketNumber}-${interaction.user.username}`,
@@ -223,21 +313,18 @@ client.on('interactionCreate', async interaction => {
       await channel.send({ embeds: [info], components: [row] });
       await interaction.reply({ content: `🎫 ticket created: ${channel}`, flags: 64 });
     }
-
-    if (interaction.customId === 'close_ticket') {
+    else if (interaction.customId === 'close_ticket') {
       await interaction.reply({ content: '🔒 closing in 5 seconds...', flags: 64 });
       setTimeout(() => interaction.channel.delete().catch(console.error), 5000);
     }
-
-    if (interaction.customId === 'send_message') {
+    else if (interaction.customId === 'send_message') {
       await interaction.channel.send(`_ _⠀⠀⠀⠀⠀⠀**teen**⠀⠀**only**⠀⠀⠀⠀𓈒⠀⠀⠀⠀:: \n
 ⠀⠀⠀::⠀⠀⠀⠀⠀https://cash.app/$LIMEY08 \n
 ⠀⠀⠀⠀⠀⠀⠀∿⠀⠀⠀⠀⠀⠀𓏏⠀⠀⠀⠀⠀⠀⊹ \n
 -# ⠀⠀⠀⠀⠀⠀⠀⠀send web receipt`);
       await interaction.reply({ content: 'Sent.', flags: 64 });
     }
-
-    if (interaction.customId.startsWith('edit_')) {
+    else if (interaction.customId.startsWith('edit_')) {
       const [_, section, name] = interaction.customId.split('_');
       const embeds = loadEmbeds();
       const data = embeds[name];
@@ -252,23 +339,20 @@ client.on('interactionCreate', async interaction => {
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('color').setLabel('Color (HEX)').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.color || '#fcdc79'))
         );
       }
-
-      if (section === 'author') {
+      else if (section === 'author') {
         modal.setTitle('Edit Author').addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('author_name').setLabel('Author Name').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.author.name || '')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('author_icon').setLabel('Author Icon URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.author.icon || ''))
         );
       }
-
-      if (section === 'footer') {
+      else if (section === 'footer') {
         modal.setTitle('Edit Footer').addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('footer_text').setLabel('Footer Text').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.footer.text || '')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('footer_icon').setLabel('Footer Icon URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.footer.icon || '')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('footer_ts').setLabel('Add Timestamp? (yes/no)').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.footer.timestamp ? 'yes' : 'no'))
         );
       }
-
-      if (section === 'images') {
+      else if (section === 'images') {
         modal.setTitle('Edit Images').addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('image').setLabel('Main Image URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.image || '')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('thumb').setLabel('Thumbnail URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.thumbnail || ''))
@@ -278,8 +362,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.showModal(modal);
     }
   }
-
-  if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_')) {
+  else if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_')) {
     const [_, section, name] = interaction.customId.split('_');
     const embeds = loadEmbeds();
     const data = embeds[name];
@@ -290,16 +373,16 @@ client.on('interactionCreate', async interaction => {
       data.description = interaction.fields.getTextInputValue('description');
       data.color = interaction.fields.getTextInputValue('color');
     }
-    if (section === 'author') {
+    else if (section === 'author') {
       data.author.name = interaction.fields.getTextInputValue('author_name');
       data.author.icon = interaction.fields.getTextInputValue('author_icon');
     }
-    if (section === 'footer') {
+    else if (section === 'footer') {
       data.footer.text = interaction.fields.getTextInputValue('footer_text');
       data.footer.icon = interaction.fields.getTextInputValue('footer_icon');
       data.footer.timestamp = interaction.fields.getTextInputValue('footer_ts').toLowerCase().startsWith('y');
     }
-    if (section === 'images') {
+    else if (section === 'images') {
       data.image = interaction.fields.getTextInputValue('image');
       data.thumbnail = interaction.fields.getTextInputValue('thumb');
     }
@@ -312,91 +395,11 @@ client.on('interactionCreate', async interaction => {
     });
   }
 });
-const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
-const { REST, Routes } = require('discord.js');
-const Canvas = require('canvas');
-const loyaltyDataPath = './loyalty.json';
 
-let loyaltyData = {};
-if (fs.existsSync(loyaltyDataPath)) {
-  loyaltyData = JSON.parse(fs.readFileSync(loyaltyDataPath));
-}
+// Register slash commands on startup
+const token = process.env.TOKEN;
+const rest = new REST({ version: '10' }).setToken(token);
 
-// Helper to save data
-function saveLoyaltyData() {
-  fs.writeFileSync(loyaltyDataPath, JSON.stringify(loyaltyData, null, 2));
-}
-
-// Generate loyalty card image
-async function generateCard(userId) {
-const base = await Canvas.loadImage('https://cdn.discordapp.com/attachments/1333193696920866866/1387485122714140843/Untitled67_20250625122953.png?ex=687e7937&is=687d27b7&hm=6fb7ac1c16c786db8fc3c535750f9bea079d87eeeac7fad4ce5f8c3af4eb347b&');
-const stamp = await Canvas.loadImage('https://cdn.discordapp.com/attachments/1333193696920866866/1387485140053131264/Untitled64_20250625002626.png?ex=687e793b&is=687d27bb&hm=e23c3636db4c85d469caedc31ebf7a2a13815186a52667e2253d7b8e8de438a3&');
-  const canvas = Canvas.createCanvas(base.width, base.height);
-  const ctx = canvas.getContext('2d');
-
-  ctx.drawImage(base, 0, 0);
-
-  const positions = [
-    [70, 90], [140, 90], [210, 90], [280, 90], [350, 90],
-    [70, 180], [140, 180], [210, 180], [280, 180], [350, 180]
-  ];
-
-  const count = loyaltyData[userId]?.stamps || 0;
-  for (let i = 0; i < count && i < 10; i++) {
-    ctx.drawImage(stamp, positions[i][0], positions[i][1], 50, 50);
-  }
-
-  return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'card.png' });
-}
-
-// Command: /stamp
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  const { commandName, options } = interaction;
-
-  if (commandName === 'stamp') {
-    if (!interaction.member.permissions.has('Administrator')) {
-      return interaction.reply({ content: '❌ Only admins can use this command.', ephemeral: true });
-    }
-
-    const target = options.getUser('user');
-    if (!loyaltyData[target.id]) loyaltyData[target.id] = { stamps: 0 };
-
-    if (loyaltyData[target.id].stamps >= 10) {
-      return interaction.reply({ content: '🟤 This user already has a full card. Ask them to redeem it first.', ephemeral: true });
-    }
-
-    loyaltyData[target.id].stamps++;
-    saveLoyaltyData();
-
-    const cardImage = await generateCard(target.id);
-    await interaction.reply({ content: `🧸 Added a stamp for ${target.username}! (${loyaltyData[target.id].stamps}/10)`, files: [cardImage] });
-  }
-
-  // Command: /card
-  else if (commandName === 'card') {
-    const target = options.getUser('user') || interaction.user;
-    if (!loyaltyData[target.id]) loyaltyData[target.id] = { stamps: 0 };
-    const cardImage = await generateCard(target.id);
-    await interaction.reply({ content: `🎴 Here's ${target.username}'s loyalty card!`, files: [cardImage] });
-  }
-
-  // Command: /redeem
-  else if (commandName === 'redeem') {
-    if (!loyaltyData[interaction.user.id] || loyaltyData[interaction.user.id].stamps < 10) {
-      return interaction.reply({ content: '🔟 You need a full card to redeem!', ephemeral: true });
-    }
-
-    loyaltyData[interaction.user.id].stamps = 0;
-    saveLoyaltyData();
-
-    await interaction.reply({
-      content: `🎁 **${interaction.user.username}** has redeemed a full card! Send them their reward manually.`,
-    });
-  }
-});
-
-// Register slash commands using your deploy-commands.js
 const loyaltyCommands = [
   new SlashCommandBuilder()
     .setName('stamp')
@@ -411,16 +414,16 @@ const loyaltyCommands = [
     .setDescription('Redeem your loyalty card if full')
 ];
 
-const rest = new REST({ version: '10' }).setToken(token);
+// Add your other slash commands here like embed_create, order, ticket, etc.
+// For brevity, just registering loyalty commands here:
 (async () => {
   try {
     console.log('📬 Registering loyalty card commands...');
-    await rest.put(Routes.applicationCommands(client.user.id), { body: loyaltyCommands });
+    await rest.put(Routes.applicationCommands(client.user.id), { body: loyaltyCommands.map(c => c.toJSON()) });
     console.log('✅ Loyalty commands registered.');
   } catch (error) {
     console.error('❌ Failed to register loyalty commands:', error);
   }
 })();
 
-
-client.login(process.env.TOKEN);
+client.login(token);
