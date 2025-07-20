@@ -312,5 +312,115 @@ client.on('interactionCreate', async interaction => {
     });
   }
 });
+const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
+const { REST, Routes } = require('discord.js');
+const Canvas = require('canvas');
+const loyaltyDataPath = './loyalty.json';
+
+let loyaltyData = {};
+if (fs.existsSync(loyaltyDataPath)) {
+  loyaltyData = JSON.parse(fs.readFileSync(loyaltyDataPath));
+}
+
+// Helper to save data
+function saveLoyaltyData() {
+  fs.writeFileSync(loyaltyDataPath, JSON.stringify(loyaltyData, null, 2));
+}
+
+// Generate loyalty card image
+async function generateCard(userId) {
+  const base = await Canvas.loadImage('assets/base_card.png');
+  const stamp = await Canvas.loadImage('assets/stamp_icon.png');
+  const canvas = Canvas.createCanvas(base.width, base.height);
+  const ctx = canvas.getContext('2d');
+
+  ctx.drawImage(base, 0, 0);
+
+  const positions = [
+    [70, 90], [140, 90], [210, 90], [280, 90], [350, 90],
+    [70, 180], [140, 180], [210, 180], [280, 180], [350, 180]
+  ];
+
+  const count = loyaltyData[userId]?.stamps || 0;
+  for (let i = 0; i < count && i < 10; i++) {
+    ctx.drawImage(stamp, positions[i][0], positions[i][1], 50, 50);
+  }
+
+  return new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'card.png' });
+}
+
+// Command: /stamp
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  const { commandName, options } = interaction;
+
+  if (commandName === 'stamp') {
+    if (!interaction.member.permissions.has('Administrator')) {
+      return interaction.reply({ content: '❌ Only admins can use this command.', ephemeral: true });
+    }
+
+    const target = options.getUser('user');
+    if (!loyaltyData[target.id]) loyaltyData[target.id] = { stamps: 0 };
+
+    if (loyaltyData[target.id].stamps >= 10) {
+      return interaction.reply({ content: '🟤 This user already has a full card. Ask them to redeem it first.', ephemeral: true });
+    }
+
+    loyaltyData[target.id].stamps++;
+    saveLoyaltyData();
+
+    const cardImage = await generateCard(target.id);
+    await interaction.reply({ content: `🧸 Added a stamp for ${target.username}! (${loyaltyData[target.id].stamps}/10)`, files: [cardImage] });
+  }
+
+  // Command: /card
+  else if (commandName === 'card') {
+    const target = options.getUser('user') || interaction.user;
+    if (!loyaltyData[target.id]) loyaltyData[target.id] = { stamps: 0 };
+    const cardImage = await generateCard(target.id);
+    await interaction.reply({ content: `🎴 Here's ${target.username}'s loyalty card!`, files: [cardImage] });
+  }
+
+  // Command: /redeem
+  else if (commandName === 'redeem') {
+    if (!loyaltyData[interaction.user.id] || loyaltyData[interaction.user.id].stamps < 10) {
+      return interaction.reply({ content: '🔟 You need a full card to redeem!', ephemeral: true });
+    }
+
+    loyaltyData[interaction.user.id].stamps = 0;
+    saveLoyaltyData();
+
+    await interaction.reply({
+      content: `🎁 **${interaction.user.username}** has redeemed a full card! Send them their reward manually.`,
+    });
+  }
+});
+
+// Register slash commands using your deploy-commands.js
+const loyaltyCommands = [
+  new SlashCommandBuilder()
+    .setName('stamp')
+    .setDescription('Manually add a stamp to a user\'s loyalty card')
+    .addUserOption(option => option.setName('user').setDescription('User to stamp').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('card')
+    .setDescription('Show your or another user\'s loyalty card')
+    .addUserOption(option => option.setName('user').setDescription('User to view')),
+  new SlashCommandBuilder()
+    .setName('redeem')
+    .setDescription('Redeem your loyalty card if full')
+];
+
+const rest = new REST({ version: '10' }).setToken(token);
+(async () => {
+  try {
+    console.log('📬 Registering loyalty card commands...');
+    await rest.put(Routes.applicationCommands(client.user.id), { body: loyaltyCommands });
+    console.log('✅ Loyalty commands registered.');
+  } catch (error) {
+    console.error('❌ Failed to register loyalty commands:', error);
+  }
+})();
+
 
 client.login(process.env.TOKEN);
