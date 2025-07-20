@@ -6,9 +6,8 @@
 "scripts": {
   "test": "echo \"Error: no test specified\" && exit 1",
   "deploy-commands": "node deploy-commands.js",
-  "start": "node index.js",
-  "postinstall": "node deploy-commands.js"
-  },
+  "start": "node deploy-commands.js && node index.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
