@@ -419,7 +419,7 @@ const loyaltyCommands = [
 (async () => {
   try {
     console.log('📬 Registering loyalty card commands...');
-    await rest.put(Routes.applicationCommands(client.user.id), { body: loyaltyCommands.map(c => c.toJSON()) });
+    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: loyaltyCommands.map(c => c.toJSON()) });
     console.log('✅ Loyalty commands registered.');
   } catch (error) {
     console.error('❌ Failed to register loyalty commands:', error);
