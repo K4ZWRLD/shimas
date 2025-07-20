@@ -329,8 +329,8 @@ function saveLoyaltyData() {
 
 // Generate loyalty card image
 async function generateCard(userId) {
-const base = await Canvas.loadImage('https://your-image-link.com/base_card.png');
-const stamp = await Canvas.loadImage('https://your-image-link.com/stamp_icon.png');
+const base = await Canvas.loadImage('https://cdn.discordapp.com/attachments/1333193696920866866/1387485122714140843/Untitled67_20250625122953.png?ex=687e7937&is=687d27b7&hm=6fb7ac1c16c786db8fc3c535750f9bea079d87eeeac7fad4ce5f8c3af4eb347b&');
+const stamp = await Canvas.loadImage('https://cdn.discordapp.com/attachments/1333193696920866866/1387485140053131264/Untitled64_20250625002626.png?ex=687e793b&is=687d27bb&hm=e23c3636db4c85d469caedc31ebf7a2a13815186a52667e2253d7b8e8de438a3&');
   const canvas = Canvas.createCanvas(base.width, base.height);
   const ctx = canvas.getContext('2d');
 
