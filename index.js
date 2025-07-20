@@ -355,55 +355,59 @@ client.on('interactionCreate', async interaction => {
       else if (section === 'images') {
         modal.setTitle('Edit Images').addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('image').setLabel('Main Image URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.image || '')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('thumb').setLabel('Thumbnail URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.thumbnail || ''))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('thumbnail').setLabel('Thumbnail URL').setStyle(TextInputStyle.Short).setRequired(false).setValue(data.thumbnail || ''))
         );
       }
+      else return interaction.reply({ content: '❌ Unknown section.', flags: 64 });
 
       await interaction.showModal(modal);
     }
   }
-  else if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_')) {
+  else if (interaction.type === InteractionType.ModalSubmit) {
+    if (!interaction.customId.startsWith('modal_')) return;
     const [_, section, name] = interaction.customId.split('_');
     const embeds = loadEmbeds();
     const data = embeds[name];
     if (!data) return interaction.reply({ content: '❌ Embed not found.', flags: 64 });
 
     if (section === 'basic') {
-      data.title = interaction.fields.getTextInputValue('title');
-      data.description = interaction.fields.getTextInputValue('description');
-      data.color = interaction.fields.getTextInputValue('color');
+      data.title = interaction.fields.getTextInputValue('title') || '';
+      data.description = interaction.fields.getTextInputValue('description') || '';
+      const colorInput = interaction.fields.getTextInputValue('color') || '#fcdc79';
+      data.color = fixColor(colorInput);
     }
     else if (section === 'author') {
-      data.author.name = interaction.fields.getTextInputValue('author_name');
-      data.author.icon = interaction.fields.getTextInputValue('author_icon');
+      data.author.name = interaction.fields.getTextInputValue('author_name') || '';
+      data.author.icon = interaction.fields.getTextInputValue('author_icon') || '';
     }
     else if (section === 'footer') {
-      data.footer.text = interaction.fields.getTextInputValue('footer_text');
-      data.footer.icon = interaction.fields.getTextInputValue('footer_icon');
-      data.footer.timestamp = interaction.fields.getTextInputValue('footer_ts').toLowerCase().startsWith('y');
+      data.footer.text = interaction.fields.getTextInputValue('footer_text') || '';
+      data.footer.icon = interaction.fields.getTextInputValue('footer_icon') || '';
+      const ts = interaction.fields.getTextInputValue('footer_ts').toLowerCase();
+      data.footer.timestamp = ts === 'yes' || ts === 'true' || ts === '1';
     }
     else if (section === 'images') {
-      data.image = interaction.fields.getTextInputValue('image');
-      data.thumbnail = interaction.fields.getTextInputValue('thumb');
+      data.image = interaction.fields.getTextInputValue('image') || '';
+      data.thumbnail = interaction.fields.getTextInputValue('thumbnail') || '';
     }
 
     saveEmbeds(embeds);
-    await interaction.update({
-      content: `Embed **${name}** updated!`,
-      embeds: [buildPreviewEmbed(data)],
-      components: [getEditButtons(name)]
-    });
+
+    const preview = buildPreviewEmbed(data);
+    const message = interaction.message;
+    if (message) {
+      await message.edit({ embeds: [preview], components: [getEditButtons(name)] });
+    }
+    await interaction.reply({ content: `✅ Updated **${name}**!`, flags: 64 });
   }
 });
 
-// Register slash commands on startup
+client.login(process.env.TOKEN);
+
+// Register slash commands
 const token = process.env.TOKEN;
 const rest = new REST({ version: '10' }).setToken(token);
 
-const { SlashCommandBuilder, REST, Routes } = require('discord.js');
-require('dotenv').config();
-
-// Define all commands, including loyaltyCommands first
 const loyaltyCommands = [
   new SlashCommandBuilder()
     .setName('stamp')
@@ -419,7 +423,6 @@ const loyaltyCommands = [
 ];
 
 const commands = [
-  // Embed commands
   new SlashCommandBuilder()
     .setName('embed_create')
     .setDescription('Create a new editable embed')
@@ -435,8 +438,6 @@ const commands = [
     .setName('embed_send')
     .setDescription('Send a saved embed to this channel')
     .addStringOption(opt => opt.setName('name').setDescription('Name of the embed').setRequired(true)),
-
-  // Order commands
   new SlashCommandBuilder()
     .setName('order')
     .setDescription('Submit a new order')
@@ -444,7 +445,6 @@ const commands = [
     .addStringOption(opt => opt.setName('item').setDescription('Item ordered').setRequired(true))
     .addStringOption(opt => opt.setName('mop').setDescription('Method of payment').setRequired(true))
     .addStringOption(opt => opt.setName('amount').setDescription('Amount ordered').setRequired(true)),
-
   new SlashCommandBuilder()
     .setName('orders')
     .setDescription('View or search order logs')
@@ -452,23 +452,15 @@ const commands = [
     .addStringOption(opt => opt.setName('item').setDescription('Filter by item'))
     .addStringOption(opt => opt.setName('status').setDescription('Filter by status (pending, paid, etc.)'))
     .addIntegerOption(opt => opt.setName('page').setDescription('Page number (for pagination)')),
-
-  // Say command
   new SlashCommandBuilder()
     .setName('say')
     .setDescription('Make the bot say something')
     .addStringOption(opt => opt.setName('message').setDescription('Message to say').setRequired(true)),
-
-  // Ticket command
   new SlashCommandBuilder()
     .setName('ticket')
     .setDescription('Send ticket creation button'),
-
-  // Spread loyalty commands here
   ...loyaltyCommands
 ].map(cmd => cmd.toJSON());
-
-const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
 (async () => {
   try {
@@ -479,6 +471,3 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     console.error('❌ Error registering commands:', error);
   }
 })();
-
-
-client.login(token);
