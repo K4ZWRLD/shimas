@@ -400,6 +400,24 @@ client.on('interactionCreate', async interaction => {
 const token = process.env.TOKEN;
 const rest = new REST({ version: '10' }).setToken(token);
 
+const { SlashCommandBuilder, REST, Routes } = require('discord.js');
+require('dotenv').config();
+
+// Define all commands, including loyaltyCommands first
+const loyaltyCommands = [
+  new SlashCommandBuilder()
+    .setName('stamp')
+    .setDescription('Manually add a stamp to a user\'s loyalty card')
+    .addUserOption(option => option.setName('user').setDescription('User to stamp').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('card')
+    .setDescription('Show your or another user\'s loyalty card')
+    .addUserOption(option => option.setName('user').setDescription('User to view')),
+  new SlashCommandBuilder()
+    .setName('redeem')
+    .setDescription('Redeem your loyalty card if full')
+];
+
 const commands = [
   // Embed commands
   new SlashCommandBuilder()
@@ -446,9 +464,11 @@ const commands = [
     .setName('ticket')
     .setDescription('Send ticket creation button'),
 
-  // Loyalty commands
+  // Spread loyalty commands here
   ...loyaltyCommands
 ].map(cmd => cmd.toJSON());
+
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
 (async () => {
   try {
