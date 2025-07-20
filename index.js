@@ -329,8 +329,8 @@ function saveLoyaltyData() {
 
 // Generate loyalty card image
 async function generateCard(userId) {
-  const base = await Canvas.loadImage('assets/base_card.png');
-  const stamp = await Canvas.loadImage('assets/stamp_icon.png');
+const base = await Canvas.loadImage('https://your-image-link.com/base_card.png');
+const stamp = await Canvas.loadImage('https://your-image-link.com/stamp_icon.png');
   const canvas = Canvas.createCanvas(base.width, base.height);
   const ctx = canvas.getContext('2d');
 
