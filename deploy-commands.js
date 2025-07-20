@@ -2,6 +2,7 @@ const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 require('dotenv').config();
 
 const commands = [
+  // Existing commands
   new SlashCommandBuilder()
     .setName('embed_create')
     .setDescription('Create a new editable embed')
@@ -31,7 +32,7 @@ const commands = [
     .setName('order')
     .setDescription('Submit a new order')
     .addUserOption(opt =>
-      opt.setName('user').setDescription('User who ordered').setRequired(true)
+      opt.setName('user').setDescription('Type your user!').setRequired(true)
     )
     .addStringOption(opt =>
       opt.setName('item').setDescription('Item ordered').setRequired(true)
@@ -50,7 +51,7 @@ const commands = [
       opt.setName('user').setDescription('Filter by user')
     )
     .addStringOption(opt =>
-      opt.setName('item').setDescription('Filter by item name')
+      opt.setName('item').setDescription('Filter by item')
     )
     .addStringOption(opt =>
       opt.setName('status').setDescription('Filter by status (pending, paid, etc.)')
@@ -68,9 +69,27 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('ticket')
-    .setDescription('Send ticket creation button')
-]
-  .map(command => command.toJSON());
+    .setDescription('Send ticket creation button'),
+
+  // Loyalty card commands
+  new SlashCommandBuilder()
+    .setName('stamp')
+    .setDescription('Manually add a stamp to a user\'s loyalty card')
+    .addUserOption(opt =>
+      opt.setName('user').setDescription('User to stamp').setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('card')
+    .setDescription('Show your or another user\'s loyalty card')
+    .addUserOption(opt =>
+      opt.setName('user').setDescription('User to view')
+    ),
+
+  new SlashCommandBuilder()
+    .setName('redeem')
+    .setDescription('Redeem your loyalty card if full')
+].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
